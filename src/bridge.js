@@ -450,6 +450,7 @@ function updateFrontmostContext(appName, windowName = '', windowBounds = null) {
 }
 
 function activateLocalSurface(name = 'local Papyr canvas', bounds = null, surfaceId = null) {
+  if (!surfaceId) return false;
   if (isLocalSurfaceActive() && localSurfaceId && localSurfaceId !== surfaceId) {
     return false;
   }
