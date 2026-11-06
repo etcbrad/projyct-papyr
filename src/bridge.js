@@ -255,6 +255,13 @@ function isLocalSurfaceActive() {
   return Date.now() < localSurfaceActiveUntil;
 }
 
+function canUseAbsoluteCanvas() {
+  // The Codex embedded browser does not expose its inner webview rectangle in
+  // macOS screen coordinates. Relative movement is safer there than applying
+  // an approximate absolute transform that can jump outside the preview.
+  return !(isLocalSurfaceActive() && !localSurfaceBounds);
+}
+
 function registerTap() {
   const now = Date.now();
   if (!tapTimer || now - lastTapAt > doubleTapIntervalMs) tapCount = 0;
@@ -639,7 +646,7 @@ function moveCursorToPaperPoint(sample) {
 }
 
 function flushPointer() {
-  if (pendingAbsoluteSample && artModeActive && (fullSheetMode || calibration.ready) && contactActive) {
+  if (pendingAbsoluteSample && canUseAbsoluteCanvas() && artModeActive && (fullSheetMode || calibration.ready) && contactActive) {
     moveCursorToPaperPoint(pendingAbsoluteSample);
     pendingAbsoluteSample = null;
   }
@@ -756,7 +763,7 @@ function processSample(sample) {
     return;
   }
 
-  if (artModeActive && (fullSheetMode || calibration.ready)) {
+  if (canUseAbsoluteCanvas() && artModeActive && (fullSheetMode || calibration.ready)) {
     processFullSheetSample(sample);
     return;
   }
