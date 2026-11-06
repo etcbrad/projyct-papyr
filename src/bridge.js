@@ -246,6 +246,7 @@ let frontmostWindowName = '';
 let frontmostWindowBounds = null;
 let artModeActive = false;
 let canvasConstraintActive = false;
+let contactCanvasBounds = null;
 let appTimer = null;
 let appRefreshInFlight = false;
 let localSurfaceActiveUntil = 0;
@@ -511,6 +512,7 @@ function refreshFrontmostApp() {
 
 function getCanvasBounds() {
   if (!canvasConstraintActive) return null;
+  if (contactCanvasBounds) return contactCanvasBounds;
   if (isLocalSurfaceActive() && localSurfaceBounds) {
     const margin = 2;
     return {
@@ -698,6 +700,7 @@ function processFullSheetSample(sample) {
     lastTabletPosition = sample;
     pendingDelta = { x: 0, y: 0 };
     filteredDelta = { x: 0, y: 0 };
+    contactCanvasBounds = getCanvasBounds();
     moveCursorToPaperPoint(sample);
     pendingAbsoluteSample = null;
     beginBlot(sample);
@@ -736,6 +739,7 @@ function processFullSheetSample(sample) {
     finishBlot();
     pendingAbsoluteSample = null;
     resetContactState();
+    contactCanvasBounds = null;
   }
   canvasConstraintActive = false;
   lastTabletPosition = sample;
@@ -753,6 +757,7 @@ function processSample(sample) {
     if (!hasContact) {
       calibrationHoldActive = false;
       canvasConstraintActive = false;
+      contactCanvasBounds = null;
       lastTabletPosition = sample;
       pendingDelta = { x: 0, y: 0 };
       filteredDelta = { x: 0, y: 0 };
@@ -792,6 +797,10 @@ function processSample(sample) {
     lastTabletPosition = sample;
     pendingDelta = { x: 0, y: 0 };
     filteredDelta = { x: 0, y: 0 };
+    if (artModeActive) {
+      canvasConstraintActive = true;
+      contactCanvasBounds = getCanvasBounds();
+    }
   }
 
   if (hasContact && contactActive && !contactMoved && contactStartPosition) {
@@ -838,8 +847,10 @@ function processSample(sample) {
     }
     finishBlot();
     resetContactState();
+    contactCanvasBounds = null;
   } else if (!hasContact) {
     canvasConstraintActive = false;
+    contactCanvasBounds = null;
   }
 }
 
@@ -1092,6 +1103,7 @@ penWatchdogTimer = setInterval(() => {
   filteredDelta = { x: 0, y: 0 };
   pendingAbsoluteSample = null;
   canvasConstraintActive = false;
+  contactCanvasBounds = null;
 }, 100);
 if (typeof penWatchdogTimer.unref === 'function') penWatchdogTimer.unref();
 appTimer = setInterval(refreshFrontmostApp, 250);
@@ -1197,6 +1209,7 @@ function handleDisconnect() {
   filteredDelta = { x: 0, y: 0 };
   pendingAbsoluteSample = null;
   canvasConstraintActive = false;
+  contactCanvasBounds = null;
   resetContactState();
   scheduleRestart();
 }
