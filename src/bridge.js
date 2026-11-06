@@ -250,6 +250,7 @@ let appRefreshInFlight = false;
 let localSurfaceActiveUntil = 0;
 let localSurfaceName = '';
 let localSurfaceBounds = null;
+let localSurfaceId = null;
 
 function isLocalSurfaceActive() {
   return Date.now() < localSurfaceActiveUntil;
@@ -448,7 +449,12 @@ function updateFrontmostContext(appName, windowName = '', windowBounds = null) {
   frontmostApp = windowName ? `${appName} — ${windowName}` : appName;
 }
 
-function activateLocalSurface(name = 'local Papyr canvas', bounds = null) {
+function activateLocalSurface(name = 'local Papyr canvas', bounds = null, surfaceId = null) {
+  if (isLocalSurfaceActive() && localSurfaceId && localSurfaceId !== surfaceId) {
+    return false;
+  }
+  if (!isLocalSurfaceActive()) localSurfaceId = surfaceId || null;
+  else if (surfaceId) localSurfaceId = surfaceId;
   localSurfaceName = String(name).slice(0, 120);
   localSurfaceActiveUntil = Date.now() + 3500;
   const embeddedHost = /chatgpt|codex/i.test(`${frontmostProcessName} ${frontmostWindowName}`);
@@ -457,7 +463,7 @@ function activateLocalSurface(name = 'local Papyr canvas', bounds = null) {
     localSurfaceActiveUntil = 0;
     localSurfaceBounds = null;
     updateFrontmostContext(frontmostProcessName, frontmostWindowName, frontmostWindowBounds);
-    return;
+    return false;
   }
   // Codex's embedded browser reports coordinates relative to its web surface,
   // not the macOS display. Use the host window's accessibility bounds there;
@@ -474,6 +480,7 @@ function activateLocalSurface(name = 'local Papyr canvas', bounds = null) {
     localSurfaceBounds = null;
   }
   updateFrontmostContext(frontmostProcessName, frontmostWindowName, frontmostWindowBounds);
+  return true;
 }
 
 function refreshFrontmostApp() {
@@ -1013,8 +1020,8 @@ function startToolboxServer() {
       request.on('end', () => {
         try {
           const payload = JSON.parse(body || '{}');
-          activateLocalSurface(payload.name || 'local Papyr canvas', payload.bounds || null);
-          sendJson(response, 200, { active: true, artModeActive });
+          const active = activateLocalSurface(payload.name || 'local Papyr canvas', payload.bounds || null, payload.surfaceId || null);
+          sendJson(response, 200, { active, artModeActive });
         } catch (error) {
           sendJson(response, 400, { error: error.message });
         }

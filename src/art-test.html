@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>XPPen Art Test</title>
   <style>
-    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #fff; }
-    canvas { display: block; width: 100vw; height: 100vh; background: #fff; cursor: crosshair; touch-action: none; }
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #d9d9d9; }
+    body { display: grid; place-items: center; }
+    canvas { display: block; width: min(100vw, 125vh); height: min(80vw, 100vh); background: #fff; cursor: crosshair; touch-action: none; box-shadow: 0 1px 12px #0003; }
     #hud {
       position: fixed; top: 12px; left: 12px; z-index: 2;
       padding: 8px 10px; border: 1px solid #d0d0d0; border-radius: 8px;
@@ -61,11 +62,17 @@
     let drawing = false;
     let currentStroke = null;
     let strokes = [];
+    let paperAspect = 1.25;
+    const surfaceId = sessionStorage.getItem('papyrSurfaceId') || (crypto.randomUUID ? crypto.randomUUID() : 'surface-' + Date.now() + '-' + Math.random());
+    sessionStorage.setItem('papyrSurfaceId', surfaceId);
 
     function resizeCanvas() {
+      canvas.style.width = `min(100vw, ${paperAspect * 100}vh)`;
+      canvas.style.height = `min(${100 / paperAspect}vw, 100vh)`;
+      const bounds = canvas.getBoundingClientRect();
       const ratio = window.devicePixelRatio || 1;
-      canvas.width = Math.max(1, Math.round(window.innerWidth * ratio));
-      canvas.height = Math.max(1, Math.round(window.innerHeight * ratio));
+      canvas.width = Math.max(1, Math.round(bounds.width * ratio));
+      canvas.height = Math.max(1, Math.round(bounds.height * ratio));
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       context.lineWidth = 2;
       context.lineCap = 'round';
@@ -74,7 +81,8 @@
     }
 
     function pointFromEvent(event) {
-      return { x: event.clientX, y: event.clientY };
+      const bounds = canvas.getBoundingClientRect();
+      return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
     }
 
     function drawSegment(from, to) {
@@ -93,7 +101,8 @@
     }
 
     function redraw() {
-      context.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      const bounds = canvas.getBoundingClientRect();
+      context.clearRect(0, 0, bounds.width, bounds.height);
       for (const stroke of strokes) {
         if (stroke.length === 1) drawPoint(stroke[0]);
         for (let index = 1; index < stroke.length; index += 1) drawSegment(stroke[index - 1], stroke[index]);
@@ -193,6 +202,20 @@
         target.textContent = '';
       }
     }
+    function updatePaperAspect(points) {
+      const byLabel = Object.fromEntries((points || []).map((point) => [point.label, point]));
+      const tl = byLabel['top-left'];
+      const tr = byLabel['top-right'];
+      const br = byLabel['bottom-right'];
+      const bl = byLabel['bottom-left'];
+      if (!tl || !tr || !br || !bl) return;
+      const width = (Math.hypot(tr.x - tl.x, tr.y - tl.y) + Math.hypot(br.x - bl.x, br.y - bl.y)) / 2;
+      const height = (Math.hypot(bl.x - tl.x, bl.y - tl.y) + Math.hypot(br.x - tr.x, br.y - tr.y)) / 2;
+      if (width > 5000 && height > 5000) {
+        paperAspect = Math.max(0.5, Math.min(2, width / height));
+        resizeCanvas();
+      }
+    }
     document.getElementById('startCalibration').addEventListener('click', () => calibrationAction('start'));
     document.getElementById('cancelCalibration').addEventListener('click', () => calibrationAction('cancel'));
     async function openCalibrationOnLoad() {
@@ -204,7 +227,10 @@
       }
     }
     openCalibrationOnLoad().catch(() => {});
-    setInterval(() => fetch('/api/calibration').then((response) => response.json()).then(renderCalibration), 500);
+    setInterval(() => fetch('/api/calibration').then((response) => response.json()).then((state) => {
+      renderCalibration(state);
+      updatePaperAspect(state.points);
+    }), 500);
     function refreshBlotStatus() {
       fetch('/api/blots').then((response) => response.json()).then((state) => {
         const latest = state.blots[state.blots.length - 1];
@@ -218,6 +244,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: 'XPPen Art Test canvas',
+          surfaceId,
           bounds: {
             x: window.screenX + canvasBounds.left,
             y: window.screenY + canvasBounds.top,
