@@ -99,6 +99,14 @@ function applyRuntimeSettings(nextSettings, persist = true) {
   if (Object.prototype.hasOwnProperty.call(nextSettings, 'doubleTapIntervalMs')) {
     doubleTapIntervalMs = clamp(nextSettings.doubleTapIntervalMs, 200, 600, doubleTapIntervalMs);
   }
+  if (Object.prototype.hasOwnProperty.call(nextSettings, 'dragLock')) {
+    dragLock = Boolean(nextSettings.dragLock);
+    if (!dragLock && mouseButtonDown) {
+      robot.mouseToggle('up', 'left');
+      mouseButtonDown = false;
+      resetContactState();
+    }
+  }
   if (Object.prototype.hasOwnProperty.call(nextSettings, 'fullSheetMode')) {
     fullSheetMode = Boolean(nextSettings.fullSheetMode);
   }
@@ -419,9 +427,10 @@ function updateFrontmostContext(appName, windowName = '', windowBounds = null) {
   if (nextArtMode !== artModeActive) {
     artModeActive = nextArtMode;
     log(`Art mode ${artModeActive ? 'enabled' : 'disabled'} (${isLocalSurfaceActive() ? localSurfaceName : (windowName || appName || 'unknown app')})`);
-    if (!artModeActive && !dragLock && mouseButtonDown) {
+    if (!artModeActive && mouseButtonDown) {
       robot.mouseToggle('up', 'left');
       mouseButtonDown = false;
+      resetContactState();
     }
     if (!artModeActive) canvasConstraintActive = false;
   }
@@ -874,6 +883,7 @@ const TOOLBOX_HTML = `<!doctype html>
 <p class="muted">Changes apply immediately and are saved for the next launch.</p>
   <p id="mode" class="muted">Loading…</p>
   <div class="row"><label><input id="fullSheet" type="checkbox"> Full Sheet mode <small class="muted">Use the complete Note Plus field; calibration is bypassed.</small></label></div>
+  <div class="row"><button id="resetDrag" type="button">Reset drag lock</button> <small class="muted">Releases any held mouse state.</small></div>
 <div class="card">
   <div class="row"><label for="sensitivity">Cursor sensitivity <output id="sensitivityValue"></output></label><input id="sensitivity" type="range" min="0.01" max="0.5" step="0.01"></div>
   <div class="row"><label for="smoothing">Smoothing responsiveness <output id="smoothingValue"></output></label><input id="smoothing" type="range" min="0.05" max="0.9" step="0.05"><small class="muted">Lower is smoother; higher is more immediate.</small></div>
@@ -932,6 +942,10 @@ for (const id of Object.keys(fields)) document.getElementById(id).addEventListen
 document.getElementById('fullSheet').addEventListener('change', async (event) => {
   await fetch('/api/settings', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ fullSheetMode: event.target.checked }) });
   document.getElementById('status').textContent = event.target.checked ? 'Full Sheet enabled' : 'Full Sheet disabled';
+});
+document.getElementById('resetDrag').addEventListener('click', async () => {
+  await fetch('/api/settings', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ dragLock: false }) });
+  document.getElementById('status').textContent = 'Drag lock reset';
 });
 document.getElementById('startCalibration').addEventListener('click', () => calibrationAction('start'));
 document.getElementById('cancelCalibration').addEventListener('click', () => calibrationAction('cancel'));
