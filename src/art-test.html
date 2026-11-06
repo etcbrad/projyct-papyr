@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>XPPen Art Test</title>
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #fff; }
+    canvas { display: block; width: 100vw; height: 100vh; background: #fff; cursor: crosshair; touch-action: none; }
+    #hud {
+      position: fixed; top: 12px; left: 12px; z-index: 2;
+      padding: 8px 10px; border: 1px solid #d0d0d0; border-radius: 8px;
+      background: rgba(255,255,255,.88); color: #222;
+      font: 12px -apple-system, BlinkMacSystemFont, sans-serif;
+      user-select: none; pointer-events: none;
+    }
+    #hud button { pointer-events: auto; margin-left: 6px; }
+    #calibrationOverlay { display: none; position: fixed; inset: 0; z-index: 3; pointer-events: none; }
+    #calibrationOverlay.active { display: block; }
+    #calibrationTarget {
+      position: absolute; width: 34px; height: 34px; transform: translate(-50%, -50%);
+      border: 3px solid #e11; border-radius: 50%; box-sizing: border-box;
+      box-shadow: 0 0 0 2px #fff, 0 0 0 4px #e11;
+    }
+    #calibrationTarget::before, #calibrationTarget::after {
+      content: ''; position: absolute; background: #e11;
+    }
+    #calibrationTarget::before { width: 54px; height: 2px; left: -13px; top: 13px; }
+    #calibrationTarget::after { width: 2px; height: 54px; left: 13px; top: -13px; }
+    #calibrationTarget.free { display: none; }
+    #calibrationInstruction {
+      position: absolute; top: 54%; left: 50%; transform: translateX(-50%);
+      padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,.94);
+      color: #111; font: 14px -apple-system, BlinkMacSystemFont, sans-serif;
+      box-shadow: 0 1px 8px #0003;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" aria-label="XPPen white art test canvas"></canvas>
+  <div id="calibrationOverlay"><div id="calibrationTarget"></div><div id="calibrationInstruction"></div></div>
+  <div id="hud">
+    <span id="status">Hover or touch the paper to begin.</span>
+    <button id="clear" type="button">Clear</button>
+    <button id="save" type="button">Save PNG</button>
+    <button id="startCalibration" type="button">Calibrate</button>
+    <button id="cancelCalibration" type="button">Cancel calibration</button>
+    <button id="fullSheet" type="button">Full Sheet: off</button>
+    <span id="calibrationStatus"></span>
+    <span id="blotStatus"></span>
+  </div>
+  <script>
+    const canvas = document.getElementById('canvas');
+    const context = canvas.getContext('2d');
+    const status = document.getElementById('status');
+    const calibrationOverlay = document.getElementById('calibrationOverlay');
+    const calibrationTarget = document.getElementById('calibrationTarget');
+    const calibrationInstruction = document.getElementById('calibrationInstruction');
+    const blotStatus = document.getElementById('blotStatus');
+    const fullSheetButton = document.getElementById('fullSheet');
+    let drawing = false;
+    let currentStroke = null;
+    let strokes = [];
+
+    function resizeCanvas() {
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.round(window.innerWidth * ratio));
+      canvas.height = Math.max(1, Math.round(window.innerHeight * ratio));
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      context.lineWidth = 2;
+      context.lineCap = 'round';
+      context.lineJoin = 'round';
+      redraw();
+    }
+
+    function pointFromEvent(event) {
+      return { x: event.clientX, y: event.clientY };
+    }
+
+    function drawSegment(from, to) {
+      context.strokeStyle = '#000';
+      context.beginPath();
+      context.moveTo(from.x, from.y);
+      context.lineTo(to.x, to.y);
+      context.stroke();
+    }
+
+    function drawPoint(point) {
+      context.fillStyle = '#000';
+      context.beginPath();
+      context.arc(point.x, point.y, Math.max(1.5, context.lineWidth / 2), 0, Math.PI * 2);
+      context.fill();
+    }
+
+    function redraw() {
+      context.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      for (const stroke of strokes) {
+        if (stroke.length === 1) drawPoint(stroke[0]);
+        for (let index = 1; index < stroke.length; index += 1) drawSegment(stroke[index - 1], stroke[index]);
+      }
+      if (currentStroke) {
+        if (currentStroke.length === 1) drawPoint(currentStroke[0]);
+        for (let index = 1; index < currentStroke.length; index += 1) drawSegment(currentStroke[index - 1], currentStroke[index]);
+      }
+    }
+
+    canvas.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      drawing = true;
+      currentStroke = [pointFromEvent(event)];
+      canvas.setPointerCapture(event.pointerId);
+      status.textContent = 'Contact: drawing';
+    });
+
+    canvas.addEventListener('pointermove', (event) => {
+      if (!drawing || !currentStroke) return;
+      const next = pointFromEvent(event);
+      drawSegment(currentStroke[currentStroke.length - 1], next);
+      currentStroke.push(next);
+    });
+
+    function finishStroke(event) {
+      if (!drawing) return;
+      drawing = false;
+      if (currentStroke && currentStroke.length > 0) strokes.push(currentStroke);
+      currentStroke = null;
+      if (event && canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+      status.textContent = 'Hover or touch the paper to begin.';
+    }
+
+    canvas.addEventListener('pointerup', finishStroke);
+    canvas.addEventListener('pointercancel', finishStroke);
+    document.getElementById('clear').addEventListener('click', () => {
+      strokes = [];
+      currentStroke = null;
+      drawing = false;
+      redraw();
+      status.textContent = 'Canvas cleared.';
+    });
+    document.getElementById('save').addEventListener('click', () => {
+      const link = document.createElement('a');
+      link.download = 'xppen-art-test.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    });
+    async function calibrationAction(action) {
+      const response = await fetch('/api/calibration', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      renderCalibration(await response.json());
+    }
+    async function refreshSettings() {
+      const settings = await fetch('/api/settings').then((response) => response.json());
+      fullSheetButton.textContent = 'Full Sheet: ' + (settings.fullSheetMode ? 'on' : 'off');
+    }
+    fullSheetButton.addEventListener('click', async () => {
+      const settings = await fetch('/api/settings').then((response) => response.json());
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fullSheetMode: !settings.fullSheetMode }),
+      });
+      refreshSettings();
+    });
+    function renderCalibration(state) {
+      const target = document.getElementById('calibrationStatus');
+      if (state.active) {
+        const positions = {
+          'top-left': [8, 8],
+          'top-right': [92, 8],
+          'bottom-right': [92, 92],
+          'bottom-left': [8, 92],
+          'first-mark': [50, 50],
+        };
+        const position = positions[state.nextPoint] || [50, 50];
+        calibrationOverlay.classList.add('active');
+        calibrationTarget.classList.toggle('free', state.nextPoint === 'first-mark');
+        calibrationTarget.style.left = position[0] + '%';
+        calibrationTarget.style.top = position[1] + '%';
+        calibrationInstruction.textContent = state.nextPoint === 'first-mark'
+          ? 'Make any small mark anywhere inside the calibrated paper area.'
+          : 'Place the pen on the matching paper corner, hold briefly, and release.';
+        target.textContent = state.nextPoint === 'first-mark'
+          ? ' Next: make the first short canvas mark (' + state.points.length + '/5)'
+          : ' Next: ' + state.nextPoint + ' (' + state.points.length + '/5)';
+      } else if (state.ready) {
+        calibrationOverlay.classList.remove('active');
+        target.textContent = ' Calibration ready';
+      } else {
+        calibrationOverlay.classList.remove('active');
+        target.textContent = '';
+      }
+    }
+    document.getElementById('startCalibration').addEventListener('click', () => calibrationAction('start'));
+    document.getElementById('cancelCalibration').addEventListener('click', () => calibrationAction('cancel'));
+    async function openCalibrationOnLoad() {
+      const settings = await fetch('/api/settings').then((response) => response.json());
+      if (!settings.fullSheetMode) {
+        await calibrationAction('start');
+      } else {
+        renderCalibration(await fetch('/api/calibration').then((response) => response.json()));
+      }
+    }
+    openCalibrationOnLoad().catch(() => {});
+    setInterval(() => fetch('/api/calibration').then((response) => response.json()).then(renderCalibration), 500);
+    function refreshBlotStatus() {
+      fetch('/api/blots').then((response) => response.json()).then((state) => {
+        const latest = state.blots[state.blots.length - 1];
+        blotStatus.textContent = latest ? ' · Blots: ' + state.blots.length + ' · Last: ' + latest.id : ' · Blots: 0';
+      }).catch(() => {});
+    }
+    function announceSurface() {
+      const canvasBounds = canvas.getBoundingClientRect();
+      fetch('/api/surface', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'XPPen Art Test canvas',
+          bounds: {
+            x: window.screenX + canvasBounds.left,
+            y: window.screenY + canvasBounds.top,
+            width: canvasBounds.width,
+            height: canvasBounds.height,
+          },
+        }),
+      }).catch(() => {});
+    }
+    announceSurface();
+    setInterval(announceSurface, 250);
+    window.addEventListener('focus', announceSurface);
+    document.addEventListener('visibilitychange', announceSurface);
+    refreshBlotStatus();
+    setInterval(refreshBlotStatus, 500);
+    refreshSettings();
+    setInterval(refreshSettings, 1000);
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+  </script>
+</body>
+</html>

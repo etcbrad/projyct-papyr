@@ -1,0 +1,17 @@
+{
+  "name": "xppen-note-plus-ble-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BLE bridge daemon for the XPPen Note Plus on macOS",
+  "main": "src/bridge.js",
+  "scripts": {
+    "start": "node src/bridge.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@abandonware/noble": "^1.9.2-26",
+    "robotjs": "^0.9.1"
+  }
+}

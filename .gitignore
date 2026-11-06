@@ -1,0 +1,6 @@
+node_modules/
+node_modules.node24-backup/
+outputs/
+work/
+.DS_Store
+*.log
