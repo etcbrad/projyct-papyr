@@ -21,6 +21,8 @@ let cursorPosition = robot.getMousePos();
 let pendingDelta = { x: 0, y: 0 };
 let filteredDelta = { x: 0, y: 0 };
 let pointerTimer = null;
+let penWatchdogTimer = null;
+let lastPacketAt = 0;
 let toolboxServer = null;
 const screen = robot.getScreenSize();
 const MAX_RAW_JUMP = 5000;
@@ -587,9 +589,9 @@ function normalizedPaperPoint(sample) {
   const b = corners.topRight;
   const c = corners.bottomRight;
   const d = corners.bottomLeft;
-  let u = clamp((sample.x - a.x) / Math.max(1, b.x - a.x), 0, 1, 0.5);
-  let v = clamp((sample.y - a.y) / Math.max(1, d.y - a.y), 0, 1, 0.5);
-  for (let iteration = 0; iteration < 6; iteration += 1) {
+  let u = 0.5;
+  let v = 0.5;
+  for (let iteration = 0; iteration < 12; iteration += 1) {
     const topX = a.x + (b.x - a.x) * u;
     const bottomX = d.x + (c.x - d.x) * u;
     const topY = a.y + (b.y - a.y) * u;
@@ -818,6 +820,8 @@ function handleRawPacket(buffer) {
     return;
   }
 
+  lastPacketAt = Date.now();
+
   if (DEBUG_PACKETS) log(`BLE packet (${buffer.length} bytes): ${buffer.toString('hex')}`);
 
   // Notifications contain one or more 8-byte records:
@@ -1033,6 +1037,22 @@ loadSettings();
 toolboxServer = startToolboxServer();
 pointerTimer = setInterval(flushPointer, POINTER_TICK_MS);
 if (typeof pointerTimer.unref === 'function') pointerTimer.unref();
+penWatchdogTimer = setInterval(() => {
+  if (!contactActive && !mouseButtonDown) return;
+  if (Date.now() - lastPacketAt <= 300) return;
+  log('Pen stream went quiet; releasing active input');
+  if (mouseButtonDown) {
+    robot.mouseToggle('up', 'left');
+    mouseButtonDown = false;
+  }
+  finishBlot();
+  resetContactState();
+  lastTabletPosition = null;
+  pendingDelta = { x: 0, y: 0 };
+  filteredDelta = { x: 0, y: 0 };
+  canvasConstraintActive = false;
+}, 100);
+if (typeof penWatchdogTimer.unref === 'function') penWatchdogTimer.unref();
 appTimer = setInterval(refreshFrontmostApp, 250);
 if (typeof appTimer.unref === 'function') appTimer.unref();
 refreshFrontmostApp();
@@ -1161,6 +1181,7 @@ async function shutdown(signal) {
   if (mouseButtonDown) robot.mouseToggle('up', 'left');
   if (tapTimer) clearTimeout(tapTimer);
   if (pointerTimer) clearInterval(pointerTimer);
+  if (penWatchdogTimer) clearInterval(penWatchdogTimer);
   if (appTimer) clearInterval(appTimer);
   tapTimer = null;
   lastTapAt = 0;
