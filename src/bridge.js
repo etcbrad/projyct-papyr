@@ -39,7 +39,8 @@ let smoothingAlpha = Number(process.env.XPPEN_SMOOTHING || '0.35');
 let jitterDeadzone = 0.8;
 let tapMoveThreshold = 350;
 let doubleTapIntervalMs = 350;
-let fullSheetMode = false;
+// Default Papyr surface: the complete Note Plus field, without calibration.
+let fullSheetMode = true;
 let calibration = {
   ready: false,
   minX: 0,
@@ -916,7 +917,7 @@ const TOOLBOX_HTML = `<!doctype html>
   <div class="row"><label for="tapThreshold">Contact movement threshold <output id="tapThresholdValue"></output></label><input id="tapThreshold" type="range" min="50" max="1000" step="10"><small class="muted">Lower starts drawing/dragging sooner after contact.</small></div>
   <div class="row"><label for="doubleTap">Double/triple-tap interval <output id="doubleTapValue"></output></label><input id="doubleTap" type="range" min="200" max="600" step="10"><small class="muted">Milliseconds allowed between taps.</small></div>
 </div>
-<div class="card" style="margin-top:18px">
+<div class="card" style="margin-top:18px; display:none">
   <h2>Paper calibration</h2>
   <p id="calibrationStatus" class="muted">No calibration captured.</p>
   <button id="startCalibration" type="button">Start five-point calibration</button>

@@ -16,7 +16,8 @@
       user-select: none; pointer-events: none;
     }
     #hud button { pointer-events: auto; margin-left: 6px; }
-    #calibrationOverlay { display: none; position: fixed; inset: 0; z-index: 3; pointer-events: none; }
+    #calibrationOverlay { display: none !important; position: fixed; inset: 0; z-index: 3; pointer-events: none; }
+    #startCalibration, #cancelCalibration, #calibrationStatus { display: none; }
     #calibrationOverlay.active { display: block; }
     #calibrationTarget {
       position: absolute; width: 34px; height: 34px; transform: translate(-50%, -50%);
@@ -62,7 +63,8 @@
     let drawing = false;
     let currentStroke = null;
     let strokes = [];
-    let paperAspect = 1.25;
+    // Full Sheet uses the Note Plus default normalized field (65535 × 65535).
+    let paperAspect = 1;
     const surfaceId = sessionStorage.getItem('papyrSurfaceId') || (crypto.randomUUID ? crypto.randomUUID() : 'surface-' + Date.now() + '-' + Math.random());
     sessionStorage.setItem('papyrSurfaceId', surfaceId);
 
