@@ -20,6 +20,7 @@ let lastTabletPosition = null;
 let cursorPosition = robot.getMousePos();
 let pendingDelta = { x: 0, y: 0 };
 let filteredDelta = { x: 0, y: 0 };
+let pendingAbsoluteSample = null;
 let pointerTimer = null;
 let penWatchdogTimer = null;
 let lastPacketAt = 0;
@@ -638,6 +639,10 @@ function moveCursorToPaperPoint(sample) {
 }
 
 function flushPointer() {
+  if (pendingAbsoluteSample && artModeActive && (fullSheetMode || calibration.ready) && contactActive) {
+    moveCursorToPaperPoint(pendingAbsoluteSample);
+    pendingAbsoluteSample = null;
+  }
   if (pendingDelta.x === 0 && pendingDelta.y === 0) return;
 
   const rawDelta = pendingDelta;
@@ -678,11 +683,14 @@ function processFullSheetSample(sample) {
     pendingDelta = { x: 0, y: 0 };
     filteredDelta = { x: 0, y: 0 };
     moveCursorToPaperPoint(sample);
+    pendingAbsoluteSample = null;
     beginBlot(sample);
   }
 
   if (hasContact) {
-    moveCursorToPaperPoint(sample);
+    // BLE can deliver many samples per display frame. Keep only the newest
+    // absolute point and emit it from the 60 Hz pointer timer.
+    pendingAbsoluteSample = sample;
     if (contactActive && !contactMoved && contactStartPosition) {
       const contactDistance = Math.hypot(
         sample.x - contactStartPosition.x,
@@ -710,12 +718,14 @@ function processFullSheetSample(sample) {
       registerTap();
     }
     finishBlot();
+    pendingAbsoluteSample = null;
     resetContactState();
   }
   canvasConstraintActive = false;
   lastTabletPosition = sample;
   pendingDelta = { x: 0, y: 0 };
   filteredDelta = { x: 0, y: 0 };
+  pendingAbsoluteSample = null;
 }
 
 function processSample(sample) {
@@ -1064,6 +1074,7 @@ penWatchdogTimer = setInterval(() => {
   lastTabletPosition = null;
   pendingDelta = { x: 0, y: 0 };
   filteredDelta = { x: 0, y: 0 };
+  pendingAbsoluteSample = null;
   canvasConstraintActive = false;
 }, 100);
 if (typeof penWatchdogTimer.unref === 'function') penWatchdogTimer.unref();
@@ -1168,6 +1179,7 @@ function handleDisconnect() {
   lastTabletPosition = null;
   pendingDelta = { x: 0, y: 0 };
   filteredDelta = { x: 0, y: 0 };
+  pendingAbsoluteSample = null;
   canvasConstraintActive = false;
   resetContactState();
   scheduleRestart();
