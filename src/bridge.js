@@ -253,6 +253,7 @@ let localSurfaceActiveUntil = 0;
 let localSurfaceName = '';
 let localSurfaceBounds = null;
 let localSurfaceId = null;
+let localSurfaceHost = '';
 
 function isLocalSurfaceActive() {
   return Date.now() < localSurfaceActiveUntil;
@@ -453,11 +454,14 @@ function updateFrontmostContext(appName, windowName = '', windowBounds = null) {
 
 function activateLocalSurface(name = 'local Papyr canvas', bounds = null, surfaceId = null) {
   if (!surfaceId) return false;
-  if (isLocalSurfaceActive() && localSurfaceId && localSurfaceId !== surfaceId) {
+  const host = frontmostProcessName.toLowerCase();
+  const hostChanged = localSurfaceHost && localSurfaceHost !== host;
+  if (isLocalSurfaceActive() && localSurfaceId && localSurfaceId !== surfaceId && !hostChanged) {
     return false;
   }
-  if (!isLocalSurfaceActive()) localSurfaceId = surfaceId || null;
+  if (!isLocalSurfaceActive() || hostChanged) localSurfaceId = surfaceId || null;
   else if (surfaceId) localSurfaceId = surfaceId;
+  localSurfaceHost = host;
   localSurfaceName = String(name).slice(0, 120);
   localSurfaceActiveUntil = Date.now() + 3500;
   const embeddedHost = /chatgpt|codex/i.test(`${frontmostProcessName} ${frontmostWindowName}`);
