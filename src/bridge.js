@@ -32,6 +32,10 @@ let toolboxServer = null;
 const screen = robot.getScreenSize();
 const MAX_RAW_JUMP = 5000;
 const POINTER_TICK_MS = 1000 / 60;
+// Note Plus device profile: the usable paper field observed inside the
+// normalized 0..65535 raw coordinate space. Full Sheet/Thumbnail keeps the
+// complete raw field but constrains contact to this drawable sub-field.
+const DEFAULT_DRAWABLE_FIELD = { minX: 1470, maxX: 26850, minY: 3196, maxY: 24976 };
 const DEBUG_PACKETS = process.env.XPPEN_DEBUG === '1';
 const TOOLBOX_HOST = '127.0.0.1';
 const TOOLBOX_PORT = 8765;
@@ -217,7 +221,7 @@ function currentSettings() {
     inputMode: !artModeActive
       ? 'relative-pointer'
       : ((fullSheetMode || calibration.ready) && canUseAbsoluteCanvas()
-        ? 'absolute-tablet'
+        ? (fullSheetMode ? 'thumbnail-absolute' : 'absolute-tablet')
         : 'relative-canvas-fallback'),
   };
 }
@@ -566,6 +570,13 @@ function refreshFrontmostApp() {
 }
 
 function getCanvasBounds() {
+  const surfaceBounds = getSurfaceCanvasBounds();
+  if (!surfaceBounds) return null;
+  if (fullSheetMode) return getThumbnailCanvasBounds(surfaceBounds);
+  return surfaceBounds;
+}
+
+function getSurfaceCanvasBounds() {
   if (!canvasConstraintActive) return null;
   if (contactCanvasBounds) return contactCanvasBounds;
   if (isLocalSurfaceActive() && localSurfaceBounds) {
@@ -585,6 +596,25 @@ function getCanvasBounds() {
   const right = Math.min(screen.width - 1, frontmostWindowBounds.x + frontmostWindowBounds.width - margin);
   const bottom = Math.min(screen.height - 1, frontmostWindowBounds.y + frontmostWindowBounds.height - margin);
   return { left, top, right, bottom };
+}
+
+function getThumbnailCanvasBounds(surfaceBounds) {
+  const field = calibrationArchive && calibrationArchive.ready
+    ? {
+      minX: calibrationArchive.minX,
+      maxX: calibrationArchive.maxX,
+      minY: calibrationArchive.minY,
+      maxY: calibrationArchive.maxY,
+    }
+    : DEFAULT_DRAWABLE_FIELD;
+  const width = surfaceBounds.right - surfaceBounds.left;
+  const height = surfaceBounds.bottom - surfaceBounds.top;
+  return {
+    left: surfaceBounds.left + width * field.minX / 65535,
+    top: surfaceBounds.top + height * field.minY / 65535,
+    right: surfaceBounds.left + width * field.maxX / 65535,
+    bottom: surfaceBounds.top + height * field.maxY / 65535,
+  };
 }
 
 function constrainCursorToCanvas() {
@@ -696,13 +726,16 @@ function normalizedPaperPoint(sample) {
 }
 
 function moveCursorToPaperPoint(sample) {
-  const canvasBounds = getCanvasBounds();
-  if (!canvasBounds) return;
+  const surfaceBounds = getSurfaceCanvasBounds();
+  if (!surfaceBounds) return;
   const normalized = normalizedPaperPoint(sample);
   const targetPosition = {
-    x: canvasBounds.left + normalized.x * (canvasBounds.right - canvasBounds.left),
-    y: canvasBounds.top + normalized.y * (canvasBounds.bottom - canvasBounds.top),
+    x: surfaceBounds.left + normalized.x * (surfaceBounds.right - surfaceBounds.left),
+    y: surfaceBounds.top + normalized.y * (surfaceBounds.bottom - surfaceBounds.top),
   };
+  const canvasBounds = fullSheetMode ? getThumbnailCanvasBounds(surfaceBounds) : surfaceBounds;
+  targetPosition.x = Math.max(canvasBounds.left, Math.min(canvasBounds.right, targetPosition.x));
+  targetPosition.y = Math.max(canvasBounds.top, Math.min(canvasBounds.bottom, targetPosition.y));
   const nextPosition = absoluteHandoffFrames > 0
     ? {
       x: cursorPosition.x + (targetPosition.x - cursorPosition.x) / absoluteHandoffFrames,
@@ -987,7 +1020,7 @@ const TOOLBOX_HTML = `<!doctype html>
 <h1>XPPen Note Plus Toolbox</h1>
 <p class="muted">Changes apply immediately and are saved for the next launch.</p>
   <p id="mode" class="muted">Loading…</p>
-  <div class="row"><label><input id="fullSheet" type="checkbox"> Full Sheet mode <small class="muted">Use the complete Note Plus field; calibration is bypassed.</small></label></div>
+  <div class="row"><label><input id="fullSheet" type="checkbox"> Thumbnail mode <small class="muted">Use the full raw field while constraining contact to the drawable paper region.</small></label></div>
   <div class="row"><button id="resetDrag" type="button">Reset drag lock</button> <small class="muted">Releases any held mouse state.</small></div>
 <div class="card">
   <div class="row"><label for="sensitivity">Cursor sensitivity <output id="sensitivityValue"></output></label><input id="sensitivity" type="range" min="0.01" max="0.5" step="0.01"></div>

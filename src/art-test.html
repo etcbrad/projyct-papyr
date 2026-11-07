@@ -47,7 +47,7 @@
     <button id="save" type="button">Save PNG</button>
     <button id="startCalibration" type="button">Calibrate</button>
     <button id="cancelCalibration" type="button">Cancel calibration</button>
-    <button id="fullSheet" type="button">Full Sheet: off</button>
+    <button id="fullSheet" type="button">Thumbnail: off</button>
     <span id="calibrationStatus"></span>
     <span id="blotStatus"></span>
     <span id="inputModeStatus"></span>
@@ -173,7 +173,7 @@
     }
     async function refreshSettings() {
       const settings = await fetch('/api/settings').then((response) => response.json());
-      fullSheetButton.textContent = 'Full Sheet: ' + (settings.fullSheetMode ? 'on' : 'off');
+      fullSheetButton.textContent = settings.fullSheetMode ? 'Thumbnail: on' : 'Paper View: on';
       inputModeStatus.textContent = ' · Input: ' + (settings.inputMode || 'unknown');
     }
     fullSheetButton.addEventListener('click', async () => {
