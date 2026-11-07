@@ -21,9 +21,13 @@ let cursorPosition = robot.getMousePos();
 let pendingDelta = { x: 0, y: 0 };
 let filteredDelta = { x: 0, y: 0 };
 let pendingAbsoluteSample = null;
+let absoluteHandoffFrames = 0;
 let pointerTimer = null;
 let penWatchdogTimer = null;
 let lastPacketAt = 0;
+let latestPressure = 0;
+let latestContact = false;
+let latestInputAt = 0;
 let toolboxServer = null;
 const screen = robot.getScreenSize();
 const MAX_RAW_JUMP = 5000;
@@ -39,8 +43,10 @@ let smoothingAlpha = Number(process.env.XPPEN_SMOOTHING || '0.35');
 let jitterDeadzone = 0.8;
 let tapMoveThreshold = 350;
 let doubleTapIntervalMs = 350;
+let singleClickDelayMs = 180;
 // Default Papyr surface: the complete Note Plus field, without calibration.
 let fullSheetMode = true;
+let calibrationArchive = null;
 let calibration = {
   ready: false,
   minX: 0,
@@ -85,6 +91,34 @@ function clamp(value, minimum, maximum, fallback) {
   return Number.isFinite(number) ? Math.max(minimum, Math.min(maximum, number)) : fallback;
 }
 
+function emptyCalibration() {
+  return {
+    ready: false,
+    minX: 0,
+    maxX: 65535,
+    minY: 0,
+    maxY: 65535,
+    anchorX: null,
+    anchorY: null,
+    anchorScreenX: null,
+    anchorScreenY: null,
+    points: [],
+  };
+}
+
+function setFullSheetMode(enabled) {
+  const next = Boolean(enabled);
+  if (next === fullSheetMode) return;
+  if (next && calibration.ready) {
+    calibrationArchive = calibration;
+    calibration = emptyCalibration();
+  } else if (!next && !calibration.ready && calibrationArchive) {
+    calibration = calibrationArchive;
+    calibrationArchive = null;
+  }
+  fullSheetMode = next;
+}
+
 function applyRuntimeSettings(nextSettings, persist = true) {
   if (Object.prototype.hasOwnProperty.call(nextSettings, 'pointerSensitivity')) {
     pointerSensitivity = clamp(nextSettings.pointerSensitivity, 0.01, 0.5, pointerSensitivity);
@@ -101,6 +135,9 @@ function applyRuntimeSettings(nextSettings, persist = true) {
   if (Object.prototype.hasOwnProperty.call(nextSettings, 'doubleTapIntervalMs')) {
     doubleTapIntervalMs = clamp(nextSettings.doubleTapIntervalMs, 200, 600, doubleTapIntervalMs);
   }
+  if (Object.prototype.hasOwnProperty.call(nextSettings, 'singleClickDelayMs')) {
+    singleClickDelayMs = clamp(nextSettings.singleClickDelayMs, 80, 300, singleClickDelayMs);
+  }
   if (Object.prototype.hasOwnProperty.call(nextSettings, 'dragLock')) {
     dragLock = Boolean(nextSettings.dragLock);
     if (!dragLock && mouseButtonDown) {
@@ -110,7 +147,7 @@ function applyRuntimeSettings(nextSettings, persist = true) {
     }
   }
   if (Object.prototype.hasOwnProperty.call(nextSettings, 'fullSheetMode')) {
-    fullSheetMode = Boolean(nextSettings.fullSheetMode);
+    setFullSheetMode(nextSettings.fullSheetMode);
   }
   if (nextSettings.calibration && typeof nextSettings.calibration === 'object') {
     const saved = nextSettings.calibration;
@@ -147,6 +184,13 @@ function applyRuntimeSettings(nextSettings, persist = true) {
         activePoint: null,
       };
     }
+    if (saved.calibrationArchive && typeof saved.calibrationArchive === 'object') {
+      calibrationArchive = saved.calibrationArchive;
+    }
+    if (fullSheetMode && calibration.ready) {
+      calibrationArchive = calibration;
+      calibration = emptyCalibration();
+    }
   }
   if (persist) saveSettings();
 }
@@ -158,16 +202,23 @@ function currentSettings() {
     jitterDeadzone,
     tapMoveThreshold,
     doubleTapIntervalMs,
+    singleClickDelayMs,
     fullSheetMode,
     frontmostApp,
     artModeActive,
     dragLock,
     canvasConstraintActive,
     calibration,
+    calibrationArchive,
     calibrationSession: calibrationSession
       ? { active: true, points: calibrationSession.points }
       : null,
     blotCount: blotHistory.length,
+    inputMode: !artModeActive
+      ? 'relative-pointer'
+      : ((fullSheetMode || calibration.ready) && canUseAbsoluteCanvas()
+        ? 'absolute-tablet'
+        : 'relative-canvas-fallback'),
   };
 }
 
@@ -293,7 +344,7 @@ function registerTap() {
       log('Double-click gesture');
     }
     tapCount = 0;
-  }, doubleTapIntervalMs);
+  }, singleClickDelayMs);
 }
 
 function resetContactState() {
@@ -648,10 +699,17 @@ function moveCursorToPaperPoint(sample) {
   const canvasBounds = getCanvasBounds();
   if (!canvasBounds) return;
   const normalized = normalizedPaperPoint(sample);
-  const nextPosition = {
+  const targetPosition = {
     x: canvasBounds.left + normalized.x * (canvasBounds.right - canvasBounds.left),
     y: canvasBounds.top + normalized.y * (canvasBounds.bottom - canvasBounds.top),
   };
+  const nextPosition = absoluteHandoffFrames > 0
+    ? {
+      x: cursorPosition.x + (targetPosition.x - cursorPosition.x) / absoluteHandoffFrames,
+      y: cursorPosition.y + (targetPosition.y - cursorPosition.y) / absoluteHandoffFrames,
+    }
+    : targetPosition;
+  if (absoluteHandoffFrames > 0) absoluteHandoffFrames -= 1;
   const nextX = Math.round(nextPosition.x);
   const nextY = Math.round(nextPosition.y);
   cursorPosition = nextPosition;
@@ -706,7 +764,9 @@ function processFullSheetSample(sample) {
     filteredDelta = { x: 0, y: 0 };
     contactCanvasBounds = getCanvasBounds();
     moveCursorToPaperPoint(sample);
+    absoluteHandoffFrames = 3;
     pendingAbsoluteSample = null;
+    absoluteHandoffFrames = 0;
     beginBlot(sample);
   }
 
@@ -750,10 +810,14 @@ function processFullSheetSample(sample) {
   pendingDelta = { x: 0, y: 0 };
   filteredDelta = { x: 0, y: 0 };
   pendingAbsoluteSample = null;
+  absoluteHandoffFrames = 0;
 }
 
 function processSample(sample) {
   const hasContact = sample.contactFlag === 0xa1 && sample.pressure > 0;
+  latestPressure = Math.round(sample.pressure);
+  latestContact = hasContact;
+  latestInputAt = Date.now();
 
   // Do not let the contact that completes calibration enter the drawing path.
   // Hold it until release so the newly-created transform cannot jump the cursor.
@@ -956,7 +1020,7 @@ function render(settings) {
     document.getElementById(id).value = settings[key];
     document.getElementById(outputId).textContent = id === 'doubleTap' || id === 'tapThreshold' ? Math.round(settings[key]) + ' ms/raw' : Number(settings[key]).toFixed(2);
   }
-  document.getElementById('mode').textContent = 'Frontmost app: ' + (settings.frontmostApp || 'unknown') + ' · Art mode: ' + (settings.artModeActive ? 'on' : 'off') + ' · Canvas constraint: ' + (settings.canvasConstraintActive ? 'on' : 'off') + ' · Drag lock: ' + (settings.dragLock ? 'on' : 'off');
+  document.getElementById('mode').textContent = 'Frontmost app: ' + (settings.frontmostApp || 'unknown') + ' · Input: ' + (settings.inputMode || 'unknown') + ' · Canvas constraint: ' + (settings.canvasConstraintActive ? 'on' : 'off') + ' · Drag lock: ' + (settings.dragLock ? 'on' : 'off');
   document.getElementById('fullSheet').checked = Boolean(settings.fullSheetMode);
 }
 async function load() { render(await (await fetch('/api/settings')).json()); }
@@ -1029,6 +1093,15 @@ function startToolboxServer() {
     }
     if (request.method === 'GET' && request.url === '/api/blots') {
       sendJson(response, 200, { active: activeBlot ? { id: activeBlot.id, samples: activeBlot.samples.length } : null, blots: blotHistory });
+      return;
+    }
+    if (request.method === 'GET' && request.url === '/api/input') {
+      sendJson(response, 200, {
+        contact: latestContact,
+        pressure: latestPressure,
+        pressureNormalized: Math.max(0, Math.min(1, latestPressure / 2048)),
+        ageMs: latestInputAt ? Date.now() - latestInputAt : null,
+      });
       return;
     }
     if (request.method === 'POST' && request.url === '/api/surface') {
@@ -1106,6 +1179,7 @@ penWatchdogTimer = setInterval(() => {
   pendingDelta = { x: 0, y: 0 };
   filteredDelta = { x: 0, y: 0 };
   pendingAbsoluteSample = null;
+  absoluteHandoffFrames = 0;
   canvasConstraintActive = false;
   contactCanvasBounds = null;
 }, 100);
@@ -1212,6 +1286,7 @@ function handleDisconnect() {
   pendingDelta = { x: 0, y: 0 };
   filteredDelta = { x: 0, y: 0 };
   pendingAbsoluteSample = null;
+  absoluteHandoffFrames = 0;
   canvasConstraintActive = false;
   contactCanvasBounds = null;
   resetContactState();

@@ -50,6 +50,7 @@
     <button id="fullSheet" type="button">Full Sheet: off</button>
     <span id="calibrationStatus"></span>
     <span id="blotStatus"></span>
+    <span id="inputModeStatus"></span>
   </div>
   <script>
     const canvas = document.getElementById('canvas');
@@ -59,6 +60,7 @@
     const calibrationTarget = document.getElementById('calibrationTarget');
     const calibrationInstruction = document.getElementById('calibrationInstruction');
     const blotStatus = document.getElementById('blotStatus');
+    const inputModeStatus = document.getElementById('inputModeStatus');
     const fullSheetButton = document.getElementById('fullSheet');
     let drawing = false;
     let currentStroke = null;
@@ -93,6 +95,13 @@
       context.moveTo(from.x, from.y);
       context.lineTo(to.x, to.y);
       context.stroke();
+    }
+
+    function updateBrushPressure() {
+      fetch('/api/input').then((response) => response.json()).then((input) => {
+        const pressure = input.contact ? input.pressureNormalized : 0.2;
+        context.lineWidth = 1.5 + pressure * 2.5;
+      }).catch(() => {});
     }
 
     function drawPoint(point) {
@@ -165,6 +174,7 @@
     async function refreshSettings() {
       const settings = await fetch('/api/settings').then((response) => response.json());
       fullSheetButton.textContent = 'Full Sheet: ' + (settings.fullSheetMode ? 'on' : 'off');
+      inputModeStatus.textContent = ' · Input: ' + (settings.inputMode || 'unknown');
     }
     fullSheetButton.addEventListener('click', async () => {
       const settings = await fetch('/api/settings').then((response) => response.json());
@@ -262,6 +272,8 @@
     document.addEventListener('visibilitychange', announceSurface);
     refreshBlotStatus();
     setInterval(refreshBlotStatus, 500);
+    updateBrushPressure();
+    setInterval(updateBrushPressure, 50);
     refreshSettings();
     setInterval(refreshSettings, 1000);
     window.addEventListener('resize', resizeCanvas);
